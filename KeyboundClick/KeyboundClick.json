@@ -1,0 +1,17 @@
+{
+  "Author": "Aaron Du",
+  "Name": "键影随行",
+  "InternalName": "KeyboundClick",
+  "AssemblyVersion": "0.1.2.0",
+  "Description": "魔光键影词条助手：首领优先，其余随机。支持手动单次提交和自动间隔提交，延迟可调并在 ±20% 范围内随机；所有提交共用至少 1 秒的硬性冷却。使用 /ktgclick 打开窗口。",
+  "Punchline": "一键随行，键影从容。",
+  "RepoUrl": "https://github.com/raindeer21/KeyboundCompanion",
+  "DownloadLinkInstall": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.2/KeyboundClick.zip",
+  "DownloadLinkUpdate": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.2/KeyboundClick.zip",
+  "DownloadLinkTesting": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.2/KeyboundClick.zip",
+  "ApplicableVersion": "any",
+  "DalamudApiLevel": 15,
+  "LoadRequiredState": 0,
+  "CanUnloadAsync": false,
+  "Tags": ["魔光键影", "KeyboundBrawler"]
+}

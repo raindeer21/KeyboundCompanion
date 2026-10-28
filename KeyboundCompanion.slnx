@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="KeyboundClick/KeyboundClick.csproj" />
+  <Project Path="KeyboundClick.Tests/KeyboundClick.Tests.csproj" />
+</Solution>

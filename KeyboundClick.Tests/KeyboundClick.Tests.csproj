@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../KeyboundClick/TargetPolicy.cs" Link="TargetPolicy.cs" />
+    <Compile Include="../KeyboundClick/ClickGate.cs" Link="ClickGate.cs" />
+    <Compile Include="../KeyboundClick/IntervalSchedule.cs" Link="IntervalSchedule.cs" />
+    <Compile Include="../KeyboundClick/EnemyKinds.cs" Link="EnemyKinds.cs" />
+    <Compile Include="../KeyboundClick/SubmissionCooldown.cs" Link="SubmissionCooldown.cs" />
+  </ItemGroup>
+</Project>
