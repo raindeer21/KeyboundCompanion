@@ -22,7 +22,9 @@ internal sealed class AntiIdleSubmit(IActivityKeyboard keyboard, SubmissionCoold
         if (!allowed || text == null || !keyboard.IsGameForeground || keyboard.HasUserInput(heldKey) ||
             (phase != Phase.Waiting && inputSession != session))
         {
-            Cancel(now, timestamp);
+            // A temporary unavailable input window must not restart the periodic timer.
+            // Only an in-flight key sequence needs cancellation/cleanup.
+            if (IsBusy) Cancel(now, timestamp);
             if (heldKey == 0) Status = !allowed || text == null ? "等待允许输入" : !keyboard.IsGameForeground ? "后台暂停，切回游戏后恢复" : "输入状态变化，已暂停";
             return;
         }

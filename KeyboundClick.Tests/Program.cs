@@ -141,7 +141,23 @@ foreach (var interruption in new[] { "different text", "session", "foreground", 
     Check(!attempt.IsBusy && backend.Held == 0, "Interruption must release digit key: " + interruption);
     Check(!backend.Events.Any(e => e is { Key: 0x0D, Down: true }), "Never press Enter without confirmed owned text: " + interruption);
 }
-Console.WriteLine("PASS: targets, shared normal/manual/error cooldown, confirmed error input, duty windows, both activity modes, interruption and key cleanup.");
+var gapKeys = new FakeKeyboard();
+var gapPulse = new AntiIdlePulse(gapKeys);
+gapPulse.Update(0, true);
+gapPulse.Update(10_000, false);
+gapPulse.Update(19_999, true);
+gapPulse.Update(20_000, true);
+Check(gapPulse.IsBusy && gapKeys.Held == 0x7C, "Enemy/wave gaps must not restart the function-key timer");
+gapPulse.Cancel(20_001);
+var gapSubmitKeys = new FakeKeyboard();
+var gapSubmit = new AntiIdleSubmit(gapSubmitKeys, new SubmissionCooldown(1000));
+gapSubmit.Update(0, 0, true, "", 7);
+gapSubmit.Update(10_000, 10_000, false, null, 0);
+gapSubmit.Update(19_999, 19_999, true, "", 7);
+gapSubmit.Update(20_000, 20_000, true, "", 7);
+Check(gapSubmit.IsBusy && gapSubmitKeys.Held == 0x31, "Enemy/wave gaps must not restart the 1 + Enter timer");
+gapSubmit.Cancel(20_001, 20_001);
+Console.WriteLine("PASS: targets, shared normal/manual/error cooldown, confirmed error input, duty windows, both activity modes, interruptions, wave gaps and key cleanup.");
 
 sealed class FakeKeyboard : IActivityKeyboard
 {

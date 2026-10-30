@@ -45,6 +45,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private bool open { get => window.IsOpen; set => window.SetOpen(value); }
     private bool antiIdleEnabled = true;
     private int antiIdleMode; // 0: deliberate 1 + Enter; 1: function/direction keys.
+    private string activityInputStatus = "等待副本输入框";
     private readonly AntiIdlePulse antiIdle = new(new WindowsActivityKeyboard());
     private readonly AntiIdleSubmit antiIdleSubmit;
     private bool disposed;
@@ -113,7 +114,9 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 refreshedAt = now;
             }
             var wasPulsing = antiIdle.IsBusy || antiIdleSubmit.IsBusy;
-            var allowActivity = antiIdleEnabled && automatic && ready;
+            // Activity protection also runs between enemy spawns. Input/UI checks below
+            // still guard every key, independently of whether a target currently exists.
+            var allowActivity = antiIdleEnabled && automatic && initializationError == null;
             long inputSession = 0;
             var inputText = allowActivity ? ReadActivityInput(out inputSession) : null;
             if (antiIdleMode == 0)
@@ -197,31 +200,34 @@ public sealed unsafe class Plugin : IDalamudPlugin
         foreach (var name in BlockingAddons)
         {
             var dialog = Gui.GetAddonByName<AtkUnitBase>(name);
-            if (dialog != null && dialog->IsVisible) return null;
+            if (dialog != null && dialog->IsVisible) return ActivityBlocked("确认框或结算界面打开，已暂停");
         }
         var agents = AgentModule.Instance();
-        if (agents == null) return null;
+        if (agents == null) return ActivityBlocked("等待游戏界面");
         var hud = (KtgHud*)agents->GetAgentByInternalId((AgentId)397);
         var inputAgent = (KtgInput*)agents->GetAgentByInternalId((AgentId)398);
-        if (hud == null || hud->IsShown == 0 || hud->HasDirector == 0 || inputAgent == null || inputAgent->Hud != hud) return null;
+        if (hud == null || hud->IsShown == 0 || hud->HasDirector == 0 || inputAgent == null || inputAgent->Hud != hud) return ActivityBlocked("等待副本输入界面");
         var player = Objects.LocalPlayer;
-        if (player == null || player.IsDead || player.StatusList.Any(effect => effect.StatusId == 5347)) return null;
+        if (player == null || player.IsDead || player.StatusList.Any(effect => effect.StatusId == 5347)) return ActivityBlocked("当前禁止输入，已暂停");
         var addon = Gui.GetAddonByName<AtkUnitBase>("KTGInput");
-        if (addon == null || !addon->IsVisible) return null;
+        if (addon == null || !addon->IsVisible) return ActivityBlocked("等待输入框显示");
         var node = addon->GetComponentNodeById(7);
-        if (node == null || node->Component == null || node->Component->GetComponentType() != ComponentType.TextInput) return null;
+        if (node == null || node->Component == null || node->Component->GetComponentType() != ComponentType.TextInput) return ActivityBlocked("未找到可用输入框");
         var input = (AtkComponentTextInput*)node->Component;
-        if (!input->Enabled || input->OwnerAddon != addon) return null;
+        if (!input->Enabled || input->OwnerAddon != addon) return ActivityBlocked("输入框暂不可用");
         var ui = RaptureAtkModule.Instance();
-        if (ui == null) return null;
+        if (ui == null) return ActivityBlocked("等待输入焦点");
         var target = ui->AtkModule.TextInput.TargetTextInputEventInterface;
-        if (target != null && target != &input->AtkTextInputEventInterface) return null;
+        if (target != null && target != &input->AtkTextInputEventInterface) return ActivityBlocked("其他输入框正在使用，已暂停");
         var raw = VisibleText(input->RawString);
         var evaluated = VisibleText(input->EvaluatedString);
-        if (raw == null || evaluated == null || (raw.Length != 0 && evaluated.Length != 0 && raw != evaluated)) return null;
+        if (raw == null || evaluated == null || (raw.Length != 0 && evaluated.Length != 0 && raw != evaluated)) return ActivityBlocked("输入内容正在变化，已暂停");
         inputSession = (long)input;
+        activityInputStatus = "输入框已就绪";
         return raw.Length != 0 ? raw : evaluated;
     }
+
+    private string? ActivityBlocked(string message) { activityInputStatus = message; return null; }
 
     private static string? VisibleText(Utf8String text)
     {
@@ -327,6 +333,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
                     ? "约每 20 秒输入 1 并回车；与所有提交共用至少 1 秒冷却，可能影响正确率。"
                     : "约每 20 秒发送功能键和左右方向键；不额外提交词条。");
                 ImGui.TextDisabled(automatic ? (antiIdleMode == 0 ? antiIdleSubmit.Status : antiIdle.Status) : "等待开启自动模式");
+                if (automatic && activityInputStatus != "输入框已就绪") ImGui.TextWrapped(activityInputStatus);
             }
             ImGui.Separator();
             ImGui.TextWrapped(lastResult);

@@ -29,7 +29,7 @@ internal sealed class AntiIdlePulse(IActivityKeyboard keyboard)
     {
         if (!allowed || !keyboard.IsGameForeground || keyboard.HasUserInput(heldKey))
         {
-            Cancel(now);
+            if (IsBusy) Cancel(now);
             if (heldKey == 0)
                 Status = !allowed ? "等待允许输入" : !keyboard.IsGameForeground ? "后台暂停，切回游戏后恢复" : "正在手动操作，已暂停";
             return;
