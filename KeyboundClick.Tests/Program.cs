@@ -110,7 +110,38 @@ keyboard.FailPress = true;
 pulse.Update(530_000, true);
 pulse.Update(550_000, true);
 Check(!pulse.IsBusy && keyboard.Held == 0, "A failed key press must not create a stuck-key state");
-Console.WriteLine("PASS: target selection, submission timing, duty window lifecycle, foreground activity pulses, cancellation, focus loss and failed key cleanup.");
+var shared = new SubmissionCooldown(1000);
+var numberKeyboard = new FakeKeyboard();
+var wrongAnswer = new AntiIdleSubmit(numberKeyboard, shared);
+wrongAnswer.Update(0, 0, true, "", 7);
+Check(shared.TryAcquire(19_500), "Normal submission setup must succeed");
+shared.Complete(19_500);
+wrongAnswer.Update(20_000, 20_000, true, "", 7);
+wrongAnswer.Update(20_050, 20_050, true, "1", 7);
+wrongAnswer.Update(20_100, 20_100, true, "1", 7);
+wrongAnswer.Update(20_499, 20_499, true, "1", 7);
+Check(!numberKeyboard.Events.Any(e => e is { Key: 0x0D, Down: true }), "Error submission must respect the preceding normal submission's cooldown");
+wrongAnswer.Update(20_500, 20_500, true, "1", 7);
+Check(numberKeyboard.Held == 0x0D, "Enter is allowed only once the cooldown expires and 1 is observed");
+wrongAnswer.Update(20_550, 20_550, true, "", 7);
+wrongAnswer.Update(20_551, 20_551, true, "", 7);
+Check(wrongAnswer.Completed == 1 && !wrongAnswer.IsBusy && numberKeyboard.Held == 0, "Error submission completes only after input clears and Enter is released");
+Check(!shared.TryAcquire(21_550) && shared.TryAcquire(21_551), "Error submission must reserve a full second before the next normal/manual submission");
+
+foreach (var interruption in new[] { "different text", "session", "foreground", "disabled", "timeout" })
+{
+    var backend = new FakeKeyboard();
+    var attempt = new AntiIdleSubmit(backend, new SubmissionCooldown(1000));
+    attempt.Update(0, 0, true, "", 7);
+    attempt.Update(20_000, 20_000, true, "", 7);
+    if (interruption == "foreground") backend.Foreground = false;
+    attempt.Update(interruption == "timeout" ? 22_001 : 20_100, 22_001,
+        interruption != "disabled", interruption == "different text" ? "玩家自己的文字" : "",
+        interruption == "session" ? 8 : 7);
+    Check(!attempt.IsBusy && backend.Held == 0, "Interruption must release digit key: " + interruption);
+    Check(!backend.Events.Any(e => e is { Key: 0x0D, Down: true }), "Never press Enter without confirmed owned text: " + interruption);
+}
+Console.WriteLine("PASS: targets, shared normal/manual/error cooldown, confirmed error input, duty windows, both activity modes, interruption and key cleanup.");
 
 sealed class FakeKeyboard : IActivityKeyboard
 {

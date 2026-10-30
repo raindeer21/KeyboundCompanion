@@ -8,5 +8,6 @@
     <Compile Include="../KeyboundClick/SubmissionCooldown.cs" Link="SubmissionCooldown.cs" />
     <Compile Include="../KeyboundClick/DutyWindowState.cs" Link="DutyWindowState.cs" />
     <Compile Include="../KeyboundClick/AntiIdlePulse.cs" Link="AntiIdlePulse.cs" />
+    <Compile Include="../KeyboundClick/AntiIdleSubmit.cs" Link="AntiIdleSubmit.cs" />
   </ItemGroup>
 </Project>

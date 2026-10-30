@@ -44,7 +44,9 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private readonly DutyWindowState window = new();
     private bool open { get => window.IsOpen; set => window.SetOpen(value); }
     private bool antiIdleEnabled = true;
+    private int antiIdleMode; // 0: deliberate 1 + Enter; 1: function/direction keys.
     private readonly AntiIdlePulse antiIdle = new(new WindowsActivityKeyboard());
+    private readonly AntiIdleSubmit antiIdleSubmit;
     private bool disposed;
     private uint requestedTerritory;
     private long requestedAt;
@@ -57,6 +59,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     public Plugin()
     {
+        antiIdleSubmit = new(new WindowsActivityKeyboard(), cooldown);
         try
         {
             if (Scanner.TryScanText(Signature, out var address))
@@ -98,6 +101,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 ready = false;
                 gate.Cancel();
                 antiIdle.Cancel(now);
+                antiIdleSubmit.Cancel(now, Stopwatch.GetTimestamp());
                 return;
             }
             var clicked = gate.Consume(); // Consume once; a failed request is never queued.
@@ -108,10 +112,27 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 Refresh();
                 refreshedAt = now;
             }
-            var wasPulsing = antiIdle.IsBusy;
-            if (clicked) antiIdle.Cancel(now); // Manual submissions take priority over activity keys.
-            else antiIdle.Update(now, antiIdleEnabled && automatic && ready && CanSendActivityKeys());
-            if (antiIdle.IsBusy || (!clicked && wasPulsing)) return;
+            var wasPulsing = antiIdle.IsBusy || antiIdleSubmit.IsBusy;
+            var allowActivity = antiIdleEnabled && automatic && ready;
+            long inputSession = 0;
+            var inputText = allowActivity ? ReadActivityInput(out inputSession) : null;
+            if (antiIdleMode == 0)
+            {
+                antiIdle.Cancel(now);
+                if (clicked && !antiIdleSubmit.IsBusy) antiIdleSubmit.Cancel(now, Stopwatch.GetTimestamp());
+                else antiIdleSubmit.Update(now, Stopwatch.GetTimestamp(), allowActivity, inputText, inputSession);
+            }
+            else
+            {
+                antiIdleSubmit.Cancel(now, Stopwatch.GetTimestamp());
+                if (clicked) antiIdle.Cancel(now);
+                else antiIdle.Update(now, allowActivity && inputText == "");
+            }
+            if (antiIdle.IsBusy || antiIdleSubmit.IsBusy || wasPulsing)
+            {
+                if (clicked) lastResult = "防闲置输入中，本次点击已取消，请稍后重试";
+                return;
+            }
             if (!clicked && !timed) return;
             if (!open || (clicked && (Client.TerritoryType != requestedTerritory || now - requestedAt > 1500)))
             {
@@ -157,6 +178,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             ready = false;
             automatic = false;
             antiIdle.Cancel(now);
+            antiIdleSubmit.Cancel(now, Stopwatch.GetTimestamp());
             status = "读取失败，提交已暂停";
             lastResult = "本次操作已结束";
             Log.Error(ex, "KeyboundClick read/submit failed; no retry scheduled");
@@ -169,37 +191,43 @@ public sealed unsafe class Plugin : IDalamudPlugin
         "ContentsFinderConfirm", "ContentsFinder", "KTGResult", "KTGGameOver", "_KTGGameover"
     ];
 
-    private bool CanSendActivityKeys()
+    private string? ReadActivityInput(out long inputSession)
     {
+        inputSession = 0;
         foreach (var name in BlockingAddons)
         {
             var dialog = Gui.GetAddonByName<AtkUnitBase>(name);
-            if (dialog != null && dialog->IsVisible) return false;
+            if (dialog != null && dialog->IsVisible) return null;
         }
         var agents = AgentModule.Instance();
-        if (agents == null) return false;
+        if (agents == null) return null;
         var hud = (KtgHud*)agents->GetAgentByInternalId((AgentId)397);
         var inputAgent = (KtgInput*)agents->GetAgentByInternalId((AgentId)398);
-        if (hud == null || hud->IsShown == 0 || hud->HasDirector == 0 || inputAgent == null || inputAgent->Hud != hud) return false;
+        if (hud == null || hud->IsShown == 0 || hud->HasDirector == 0 || inputAgent == null || inputAgent->Hud != hud) return null;
         var player = Objects.LocalPlayer;
-        if (player == null || player.IsDead || player.StatusList.Any(effect => effect.StatusId == 5347)) return false;
+        if (player == null || player.IsDead || player.StatusList.Any(effect => effect.StatusId == 5347)) return null;
         var addon = Gui.GetAddonByName<AtkUnitBase>("KTGInput");
-        if (addon == null || !addon->IsVisible) return false;
+        if (addon == null || !addon->IsVisible) return null;
         var node = addon->GetComponentNodeById(7);
-        if (node == null || node->Component == null || node->Component->GetComponentType() != ComponentType.TextInput) return false;
+        if (node == null || node->Component == null || node->Component->GetComponentType() != ComponentType.TextInput) return null;
         var input = (AtkComponentTextInput*)node->Component;
-        if (!input->Enabled || input->OwnerAddon != addon || HasVisibleText(input->RawString) || HasVisibleText(input->EvaluatedString)) return false;
+        if (!input->Enabled || input->OwnerAddon != addon) return null;
         var ui = RaptureAtkModule.Instance();
-        if (ui == null) return false;
+        if (ui == null) return null;
         var target = ui->AtkModule.TextInput.TargetTextInputEventInterface;
-        return target == null || target == &input->AtkTextInputEventInterface;
+        if (target != null && target != &input->AtkTextInputEventInterface) return null;
+        var raw = VisibleText(input->RawString);
+        var evaluated = VisibleText(input->EvaluatedString);
+        if (raw == null || evaluated == null || (raw.Length != 0 && evaluated.Length != 0 && raw != evaluated)) return null;
+        inputSession = (long)input;
+        return raw.Length != 0 ? raw : evaluated;
     }
 
-    private static bool HasVisibleText(Utf8String text)
+    private static string? VisibleText(Utf8String text)
     {
-        if (text.BufUsed <= 1) return false;
-        if (text.StringPtr.Value == null || text.BufUsed > 4096) return true;
-        return SeString.Parse(new ReadOnlySpan<byte>(text.StringPtr, (int)text.BufUsed - 1)).TextValue.Length != 0;
+        if (text.BufUsed <= 1) return "";
+        if (text.StringPtr.Value == null || text.BufUsed > 4096) return null;
+        return SeString.Parse(new ReadOnlySpan<byte>(text.StringPtr, (int)text.BufUsed - 1)).TextValue;
     }
 
     private void Refresh()
@@ -265,7 +293,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             ImGui.TextWrapped(status);
             ImGui.Spacing();
             var remainingMs = cooldown.RemainingMs(Stopwatch.GetTimestamp());
-            ImGui.BeginDisabled(!ready || gate.IsPending || remainingMs > 0);
+            ImGui.BeginDisabled(!ready || gate.IsPending || remainingMs > 0 || antiIdle.IsBusy || antiIdleSubmit.IsBusy);
             if (ImGui.Button("提交一次", new Vector2(-1, 48)))
             {
                 requestedTerritory = Client.TerritoryType;
@@ -279,7 +307,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             if (ImGui.Checkbox("自动间隔提交", ref automatic))
             {
                 schedule.Reset(Environment.TickCount64, intervalMs);
-                if (!automatic) antiIdle.Cancel(Environment.TickCount64);
+                if (!automatic) CancelActivity();
             }
             ImGui.EndDisabled();
             ImGui.SetNextItemWidth(250);
@@ -291,11 +319,14 @@ public sealed unsafe class Plugin : IDalamudPlugin
             ImGui.TextDisabled($"每次随机：{Math.Max(1000, (int)Math.Ceiling(intervalMs * .8))}～{(int)Math.Floor(intervalMs * 1.2)} 毫秒（±20%，最低 1 秒）");
             ImGui.TextDisabled(automatic ? "自动已开启；无法输入时暂停。关闭窗口停止。" : "自动默认关闭，勾选后按间隔提交。");
             if (ImGui.Checkbox("防闲置（仅自动模式、游戏前台）", ref antiIdleEnabled) && !antiIdleEnabled)
-                antiIdle.Cancel(Environment.TickCount64);
+                CancelActivity();
             if (antiIdleEnabled)
             {
-                ImGui.TextWrapped("约每 20 秒发送功能键和左右方向键；正在输入或出现确认框时暂停。");
-                ImGui.TextDisabled(automatic ? antiIdle.Status : "等待开启自动模式");
+                if (ImGui.Combo("防闲置方式", ref antiIdleMode, ["错误输入 1 + Enter", "功能键与方向键"], 2)) CancelActivity();
+                ImGui.TextWrapped(antiIdleMode == 0
+                    ? "约每 20 秒输入 1 并回车；与所有提交共用至少 1 秒冷却，可能影响正确率。"
+                    : "约每 20 秒发送功能键和左右方向键；不额外提交词条。");
+                ImGui.TextDisabled(automatic ? (antiIdleMode == 0 ? antiIdleSubmit.Status : antiIdle.Status) : "等待开启自动模式");
             }
             ImGui.Separator();
             ImGui.TextWrapped(lastResult);
@@ -312,17 +343,23 @@ public sealed unsafe class Plugin : IDalamudPlugin
     {
         gate.Cancel();
         automatic = false;
+        CancelActivity();
+    }
+
+    private void CancelActivity()
+    {
         antiIdle.Cancel(Environment.TickCount64);
+        antiIdleSubmit.Cancel(Environment.TickCount64, Stopwatch.GetTimestamp());
     }
 
     public void Dispose()
     {
         disposed = true;
         StopAutomatic();
-        if (antiIdle.IsBusy)
+        if (antiIdle.IsBusy || antiIdleSubmit.IsBusy)
         {
-            antiIdle.Cancel(Environment.TickCount64);
-            if (antiIdle.IsBusy) Log.Error("Unable to release an activity key during unload");
+            CancelActivity();
+            if (antiIdle.IsBusy || antiIdleSubmit.IsBusy) Log.Error("Unable to release an activity key during unload");
         }
         Framework.Update -= Update;
         Pi.UiBuilder.Draw -= Draw;
