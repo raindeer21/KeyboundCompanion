@@ -12,10 +12,11 @@ public sealed class Configuration : IPluginConfiguration
     public int AntiIdleMode { get; set; }
     public bool AutoCommence = true;
     public bool AutoExitResults = true;
+    public bool SubmissionProtection = true;
 
     public void Normalize()
     {
-        IntervalMs = Math.Clamp(IntervalMs, 1000, 10000);
+        IntervalMs = Math.Clamp(IntervalMs, SubmissionProtection ? 1000 : 100, 10000);
         AntiIdleMode = Math.Clamp(AntiIdleMode, 0, 1);
     }
 }

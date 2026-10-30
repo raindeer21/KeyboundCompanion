@@ -75,7 +75,8 @@ public sealed unsafe partial class Plugin : IDalamudPlugin
         intervalMs = configuration.IntervalMs;
         antiIdleEnabled = configuration.AntiIdleEnabled;
         antiIdleMode = configuration.AntiIdleMode;
-        schedule.Reset(Environment.TickCount64, intervalMs);
+        cooldown.ProtectionEnabled = configuration.SubmissionProtection;
+        schedule.Reset(Environment.TickCount64, intervalMs, configuration.SubmissionProtection);
         try
         {
             if (Scanner.TryScanText(Signature, out var address))
@@ -125,12 +126,12 @@ public sealed unsafe partial class Plugin : IDalamudPlugin
                 gate.Cancel();
                 antiIdle.Cancel(now);
                 antiIdleSubmit.Cancel(now, Stopwatch.GetTimestamp());
-                schedule.Reset(now, intervalMs);
+                schedule.Reset(now, intervalMs, configuration.SubmissionProtection);
                 return;
             }
             var clicked = gate.Consume(); // Consume once; a failed request is never queued.
             var timed = automatic && schedule.IsDue(now);
-            if (timed) schedule.Reset(now, intervalMs); // No catch-up bursts after a stalled frame.
+            if (timed) schedule.Reset(now, intervalMs, configuration.SubmissionProtection); // No catch-up bursts after a stalled frame.
             if (clicked || timed || now - refreshedAt >= 150)
             {
                 Refresh();
@@ -193,7 +194,7 @@ public sealed unsafe partial class Plugin : IDalamudPlugin
                 finally
                 {
                     cooldown.Complete(Stopwatch.GetTimestamp());
-                    schedule.Reset(Environment.TickCount64, intervalMs);
+                    schedule.Reset(Environment.TickCount64, intervalMs, configuration.SubmissionProtection);
                 }
             }
             lastResult = $"{(clicked ? "手动" : "自动")}第 {submissionCount} 次：{(selected.IsBoss ? "首领" : "随机敌人")} · {selected.Label}\n词条：{selected.Word}\n{(matched ? "已匹配词条" : "词条未匹配，本次已结束")}";
@@ -330,23 +331,31 @@ public sealed unsafe partial class Plugin : IDalamudPlugin
                 gate.Request();
             }
             ImGui.EndDisabled();
-            ImGui.TextDisabled(remainingMs > 0 ? $"冷却中：剩余 {remainingMs / 1000f:F1} 秒" : "手动和自动共用冷却，两次提交至少间隔 1 秒。");
+            ImGui.TextDisabled(remainingMs > 0 ? $"冷却中：剩余 {remainingMs / 1000f:F1} 秒"
+                : configuration.SubmissionProtection ? "手动、自动和防闲置提交共用至少 1 秒冷却。" : "1 秒提交保护已关闭。");
+            if (ImGui.Checkbox("1 秒提交保护", ref configuration.SubmissionProtection))
+            {
+                cooldown.ProtectionEnabled = configuration.SubmissionProtection;
+                intervalMs = Math.Clamp(intervalMs, configuration.SubmissionProtection ? 1000 : 100, 10000);
+                schedule.Reset(Environment.TickCount64, intervalMs, configuration.SubmissionProtection);
+                SaveSettings();
+            }
             ImGui.Spacing();
             if (ImGui.Checkbox("自动间隔提交", ref automatic))
             {
                 pausedByError = false;
-                schedule.Reset(Environment.TickCount64, intervalMs);
+                schedule.Reset(Environment.TickCount64, intervalMs, configuration.SubmissionProtection);
                 if (!automatic) CancelActivity();
                 SaveSettings();
             }
             ImGui.SetNextItemWidth(250);
-            if (ImGui.SliderInt("延迟", ref intervalMs, 1000, 10000, "%d 毫秒"))
+            if (ImGui.SliderInt("延迟", ref intervalMs, configuration.SubmissionProtection ? 1000 : 100, 10000, "%d 毫秒"))
             {
-                intervalMs = Math.Clamp(intervalMs, 1000, 10000);
-                schedule.Reset(Environment.TickCount64, intervalMs);
+                intervalMs = Math.Clamp(intervalMs, configuration.SubmissionProtection ? 1000 : 100, 10000);
+                schedule.Reset(Environment.TickCount64, intervalMs, configuration.SubmissionProtection);
                 saveSettingsAt = Environment.TickCount64 + 500;
             }
-            ImGui.TextDisabled($"每次随机：{Math.Max(1000, (int)Math.Ceiling(intervalMs * .8))}～{(int)Math.Floor(intervalMs * 1.2)} 毫秒（±20%，最低 1 秒）");
+            ImGui.TextDisabled($"每次随机：{Math.Max(configuration.SubmissionProtection ? 1000 : 1, (int)Math.Ceiling(intervalMs * .8))}～{(int)Math.Floor(intervalMs * 1.2)} 毫秒（±20%{(configuration.SubmissionProtection ? "，最低 1 秒" : "")}）");
             ImGui.TextWrapped(automatic ? "自动设置已开启；副本外或关闭窗口时暂停，进本打开后恢复。" : "自动设置已关闭；开关和间隔会自动保存。");
             if (ImGui.Checkbox("防闲置（仅自动模式、游戏前台）", ref antiIdleEnabled))
             {
@@ -361,7 +370,7 @@ public sealed unsafe partial class Plugin : IDalamudPlugin
                     SaveSettings();
                 }
                 ImGui.TextWrapped(antiIdleMode == 0
-                    ? "约每 20 秒输入 1 并回车；与所有提交共用至少 1 秒冷却，可能影响正确率。"
+                    ? $"约每 20 秒输入 1 并回车；{(configuration.SubmissionProtection ? "共用至少 1 秒冷却，" : "")}可能影响正确率。"
                     : "约每 20 秒发送功能键和左右方向键；不额外提交词条。");
                 ImGui.TextDisabled(!window.InDuty ? "副本外暂停防闲置" : automatic ? (antiIdleMode == 0 ? antiIdleSubmit.Status : antiIdle.Status) : "等待开启自动模式");
                 if (window.InDuty && automatic && activityInputStatus != "输入框已就绪") ImGui.TextWrapped(activityInputStatus);

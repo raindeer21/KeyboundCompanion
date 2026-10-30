@@ -44,6 +44,43 @@ Check(!cooldown.TryAcquire(1250000), "Same-frame manual/auto requests must produ
 cooldown.Complete(1250010); // Also the path used after a failed/throwing native call.
 Check(!cooldown.TryAcquire(2250009) && cooldown.TryAcquire(2250010), "Failed submissions must also consume the cooldown");
 Check(cooldown.RemainingMs(2250011) == 1000, "UI countdown must round up");
+var optionalCooldown = new SubmissionCooldown(1000);
+Check(optionalCooldown.ProtectionEnabled, "Protection must default to enabled");
+optionalCooldown.Complete(100);
+Check(!optionalCooldown.TryAcquire(200), "Existing protection must block early clicks");
+optionalCooldown.ProtectionEnabled = false;
+Check(optionalCooldown.RemainingMs(200) == 0 && optionalCooldown.TryAcquire(200), "Disabling must remove the remaining cooldown immediately");
+optionalCooldown.Complete(250);
+Check(optionalCooldown.TryAcquire(251), "Unprotected submissions must allow sub-second intervals");
+optionalCooldown.Complete(300);
+optionalCooldown.ProtectionEnabled = true;
+Check(!optionalCooldown.TryAcquire(1299) && optionalCooldown.TryAcquire(1300), "Re-enabling must protect the latest actual completion");
+foreach (var baseline in new[] { 0, 100, 500, 999, 1000, 10000 })
+{
+    var fastSchedule = new IntervalSchedule(random);
+    for (var j = 0; j < 1000; j++)
+    {
+        fastSchedule.Reset(10000, baseline, false);
+        var clamped = Math.Clamp(baseline, 100, 10000);
+        Check(fastSchedule.LastDelayMs >= Math.Ceiling(clamped * .8) && fastSchedule.LastDelayMs <= Math.Floor(clamped * 1.2), "Unprotected jitter must retain full ±20% range");
+        Check(!fastSchedule.IsDue(10000), "Unprotected schedule must not burst in the same frame");
+    }
+    fastSchedule.Reset(10000, baseline, true);
+    Check(fastSchedule.LastDelayMs >= 1000, "Re-enabled protection must restore schedule floor");
+}
+var fastShared = new SubmissionCooldown(1000) { ProtectionEnabled = false };
+var fastKeys = new FakeKeyboard();
+var fastError = new AntiIdleSubmit(fastKeys, fastShared);
+fastError.Update(0, 0, true, "", 7);
+fastShared.Complete(19999);
+fastError.Update(20000, 20000, true, "", 7);
+fastError.Update(20050, 20050, true, "1", 7);
+fastError.Update(20051, 20051, true, "1", 7);
+fastError.Update(20052, 20052, true, "1", 7);
+Check(fastKeys.Held == 0x0D, "Anti-idle must honor the shared protection switch");
+fastError.Update(20102, 20102, true, "", 7);
+fastError.Update(20103, 20103, true, "", 7);
+Check(fastError.Completed == 1 && fastShared.TryAcquire(20104), "Normal submissions must not retain a hidden cooldown after unprotected anti-idle");
 var window = new DutyWindowState();
 window.Observe(false);
 Check(!window.IsOpen, "Startup outside duty must stay hidden");

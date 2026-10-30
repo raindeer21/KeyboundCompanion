@@ -4,12 +4,16 @@ namespace KeyboundClick;
 internal sealed class SubmissionCooldown(long ticksPerSecond)
 {
     private long nextAllowedAt;
+    internal bool ProtectionEnabled { get; set; } = true;
 
-    internal int RemainingMs(long now) => (int)Math.Ceiling(Math.Max(0, Volatile.Read(ref nextAllowedAt) - now) * 1000d / ticksPerSecond);
+    internal int RemainingMs(long now) => ProtectionEnabled
+        ? (int)Math.Ceiling(Math.Max(0, Volatile.Read(ref nextAllowedAt) - now) * 1000d / ticksPerSecond)
+        : 0;
 
     internal bool TryAcquire(long now)
     {
-        if (now < Volatile.Read(ref nextAllowedAt)) return false;
+        if (ProtectionEnabled && now < Volatile.Read(ref nextAllowedAt)) return false;
+        // Keep tracking while disabled so re-enabling protects the most recent submission.
         Volatile.Write(ref nextAllowedAt, now + ticksPerSecond);
         return true;
     }
