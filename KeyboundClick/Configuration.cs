@@ -10,6 +10,8 @@ public sealed class Configuration : IPluginConfiguration
     public int IntervalMs { get; set; } = 1000;
     public bool AntiIdleEnabled { get; set; } = true;
     public int AntiIdleMode { get; set; }
+    public bool AutoCommence = true;
+    public bool AutoExitResults = true;
 
     public void Normalize()
     {

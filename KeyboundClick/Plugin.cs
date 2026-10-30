@@ -17,7 +17,7 @@ using Lumina.Excel.Sheets;
 
 namespace KeyboundClick;
 
-public sealed unsafe class Plugin : IDalamudPlugin
+public sealed unsafe partial class Plugin : IDalamudPlugin
 {
     [PluginService] internal static IDalamudPluginInterface Pi { get; private set; } = null!;
     [PluginService] internal static ICommandManager Commands { get; private set; } = null!;
@@ -112,6 +112,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             if (saveSettingsAt != 0 && now >= saveSettingsAt) SaveSettings();
             // Observe duty transitions even while the window is hidden.
             window.Observe(IsInDuty());
+            if (UpdateConfirmations(now)) return;
             if (!window.CanExecute || pausedByError)
             {
                 ready = false;
@@ -365,6 +366,19 @@ public sealed unsafe class Plugin : IDalamudPlugin
                 ImGui.TextDisabled(!window.InDuty ? "副本外暂停防闲置" : automatic ? (antiIdleMode == 0 ? antiIdleSubmit.Status : antiIdle.Status) : "等待开启自动模式");
                 if (window.InDuty && automatic && activityInputStatus != "输入框已就绪") ImGui.TextWrapped(activityInputStatus);
             }
+            ImGui.Separator();
+            if (ImGui.Checkbox("自动确认魔光键影“出发”", ref configuration.AutoCommence))
+            {
+                confirmationFault = false;
+                SaveSettings();
+            }
+            if (ImGui.Checkbox("自动点击结算“退出”", ref configuration.AutoExitResults))
+            {
+                confirmationFault = false;
+                SaveSettings();
+            }
+            ImGui.TextWrapped("以上两项独立生效，关闭窗口后仍有效；按钮可用约 1 秒后确认。");
+            ImGui.TextWrapped(confirmationStatus);
             ImGui.Separator();
             ImGui.TextWrapped(lastResult);
             if (ImGui.CollapsingHeader("当前候选目标"))

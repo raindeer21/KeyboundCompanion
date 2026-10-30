@@ -162,7 +162,27 @@ gapSubmit.Update(19_999, 19_999, true, "", 7);
 gapSubmit.Update(20_000, 20_000, true, "", 7);
 Check(gapSubmit.IsBusy && gapSubmitKeys.Held == 0x31, "Enemy/wave gaps must not restart the 1 + Enter timer");
 gapSubmit.Cancel(20_001, 20_001);
-Console.WriteLine("PASS: targets, shared normal/manual/error cooldown, confirmed error input, duty windows, both activity modes, interruptions, wave gaps and key cleanup.");
+Check(ConfirmationPolicy.CanCommence(true, 2, 1095, "出发"), "Keybound popped duty must be accepted");
+Check(!ConfirmationPolicy.CanCommence(true, 2, 999, "出发"), "Other duties must never be accepted");
+Check(!ConfirmationPolicy.CanCommence(true, 1, 1095, "出发"), "Roulette IDs must not be mistaken for duty IDs");
+Check(!ConfirmationPolicy.CanCommence(false, 2, 1095, "出发"), "Disabled commencement must not run");
+Check(!ConfirmationPolicy.CanCommence(true, 2, 1095, "取消"), "Unexpected button must not be clicked");
+Check(ConfirmationPolicy.CanExit(true, true, "退出"), "Keybound result exit must be allowed");
+Check(!ConfirmationPolicy.CanExit(true, false, "退出") && !ConfirmationPolicy.CanExit(false, true, "退出"), "Exit requires both duty and setting");
+Check(!ConfirmationPolicy.CanExit(true, true, "是"), "Generic yes/no dialogs must not be confirmed");
+var confirmation = new ConfirmationGate();
+Check(!confirmation.TryAcquire(0, 123, true) && !confirmation.TryAcquire(999, 123, true), "Wait for a stable popup");
+Check(confirmation.TryAcquire(1000, 123, true), "Click at one second");
+Check(!confirmation.TryAcquire(100000, 123, true), "A persistent popup must only be clicked once");
+confirmation.TryAcquire(100001, 123, false);
+Check(!confirmation.TryAcquire(102000, 123, true), "Toggling must not double click the same popup");
+confirmation.TryAcquire(103000, 0, false);
+Check(!confirmation.TryAcquire(104000, 123, true), "Reused addon address must wait again");
+confirmation.TryAcquire(104900, 123, false);
+Check(!confirmation.TryAcquire(105000, 123, true) && !confirmation.TryAcquire(105999, 123, true), "Unavailable buttons reset stable time");
+Check(confirmation.TryAcquire(106000, 123, true), "New popup may be confirmed");
+Check(!confirmation.TryAcquire(107000, 456, true) && confirmation.TryAcquire(108000, 456, true), "Different popup starts a new cycle");
+Console.WriteLine("PASS: targets, shared normal/manual/error cooldown, confirmed error input, duty windows, both activity modes, interruptions, wave gaps, key cleanup and scoped one-shot confirmations.");
 
 sealed class FakeKeyboard : IActivityKeyboard
 {
