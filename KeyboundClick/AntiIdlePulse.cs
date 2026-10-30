@@ -56,7 +56,11 @@ internal sealed class AntiIdlePulse(IActivityKeyboard keyboard)
         }
         if (!active)
         {
-            if (now < nextAt) return;
+            if (now < nextAt)
+            {
+                Status = $"已完成 {Completed} 次防闲置输入，下次约 {(nextAt - now + 999) / 1000} 秒";
+                return;
+            }
             active = true;
             index = 0;
         }

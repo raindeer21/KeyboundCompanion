@@ -44,7 +44,11 @@ internal sealed class AntiIdleSubmit(IActivityKeyboard keyboard, SubmissionCoold
                 nextAt = now + 20_000;
                 Status = "已就绪，约每 20 秒输入 1 并回车";
             }
-            if (now < nextAt) return;
+            if (now < nextAt)
+            {
+                Status = $"已确认 {Completed} 次防闲置提交，下次约 {(nextAt - now + 999) / 1000} 秒";
+                return;
+            }
             if (!keyboard.Press(0x31)) { Fail(now, timestamp, "数字键发送失败"); return; }
             heldKey = 0x31;
             session = inputSession;

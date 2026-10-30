@@ -48,6 +48,9 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private string activityInputStatus = "等待副本输入框";
     private readonly AntiIdlePulse antiIdle = new(new WindowsActivityKeyboard());
     private readonly AntiIdleSubmit antiIdleSubmit;
+    private readonly Configuration configuration;
+    private long saveSettingsAt;
+    private bool pausedByError;
     private bool disposed;
     private uint requestedTerritory;
     private long requestedAt;
@@ -61,6 +64,18 @@ public sealed unsafe class Plugin : IDalamudPlugin
     public Plugin()
     {
         antiIdleSubmit = new(new WindowsActivityKeyboard(), cooldown);
+        try { configuration = Pi.GetPluginConfig() as Configuration ?? new Configuration(); }
+        catch (Exception ex)
+        {
+            configuration = new Configuration();
+            Log.Warning(ex, "Could not load KeyboundClick settings; using defaults");
+        }
+        configuration.Normalize();
+        automatic = configuration.Automatic;
+        intervalMs = configuration.IntervalMs;
+        antiIdleEnabled = configuration.AntiIdleEnabled;
+        antiIdleMode = configuration.AntiIdleMode;
+        schedule.Reset(Environment.TickCount64, intervalMs);
         try
         {
             if (Scanner.TryScanText(Signature, out var address))
@@ -94,15 +109,22 @@ public sealed unsafe class Plugin : IDalamudPlugin
         var now = Environment.TickCount64;
         try
         {
+            if (saveSettingsAt != 0 && now >= saveSettingsAt) SaveSettings();
             // Observe duty transitions even while the window is hidden.
             window.Observe(IsInDuty());
-            if (!open)
+            if (!window.CanExecute || pausedByError)
             {
-                automatic = false;
                 ready = false;
+                candidates = [];
+                if (!window.InDuty)
+                {
+                    pausedByError = false;
+                    status = "当前不在魔光键影，可提前调整设置。";
+                }
                 gate.Cancel();
                 antiIdle.Cancel(now);
                 antiIdleSubmit.Cancel(now, Stopwatch.GetTimestamp());
+                schedule.Reset(now, intervalMs);
                 return;
             }
             var clicked = gate.Consume(); // Consume once; a failed request is never queued.
@@ -179,7 +201,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
         catch (Exception ex)
         {
             ready = false;
-            automatic = false;
+            pausedByError = true;
             antiIdle.Cancel(now);
             antiIdleSubmit.Cancel(now, Stopwatch.GetTimestamp());
             status = "读取失败，提交已暂停";
@@ -243,7 +265,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
         if (initializationError != null) { status = initializationError; return; }
         var main = GameMain.Instance();
         if (!Client.IsLoggedIn || main == null || main->CurrentContentFinderConditionId != 1095)
-        { automatic = false; status = "等待进入魔光键影"; return; }
+        { status = "等待进入魔光键影"; return; }
         var module = AgentModule.Instance();
         if (module == null) { status = "等待游戏界面"; return; }
         var hud = (KtgHud*)module->GetAgentByInternalId((AgentId)397);
@@ -290,7 +312,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private void Draw()
     {
-        if (!open || !window.InDuty) { StopAutomatic(); return; }
+        if (!open) { PauseExecution(); return; }
         ImGui.SetNextWindowSize(new Vector2(460, 410), ImGuiCond.FirstUseEver);
         var visible = open;
         if (ImGui.Begin("键影随行###KeyboundClick", ref visible))
@@ -299,7 +321,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             ImGui.TextWrapped(status);
             ImGui.Spacing();
             var remainingMs = cooldown.RemainingMs(Stopwatch.GetTimestamp());
-            ImGui.BeginDisabled(!ready || gate.IsPending || remainingMs > 0 || antiIdle.IsBusy || antiIdleSubmit.IsBusy);
+            ImGui.BeginDisabled(!window.InDuty || !ready || gate.IsPending || remainingMs > 0 || antiIdle.IsBusy || antiIdleSubmit.IsBusy);
             if (ImGui.Button("提交一次", new Vector2(-1, 48)))
             {
                 requestedTerritory = Client.TerritoryType;
@@ -309,31 +331,39 @@ public sealed unsafe class Plugin : IDalamudPlugin
             ImGui.EndDisabled();
             ImGui.TextDisabled(remainingMs > 0 ? $"冷却中：剩余 {remainingMs / 1000f:F1} 秒" : "手动和自动共用冷却，两次提交至少间隔 1 秒。");
             ImGui.Spacing();
-            ImGui.BeginDisabled(!ready && !automatic);
             if (ImGui.Checkbox("自动间隔提交", ref automatic))
             {
+                pausedByError = false;
                 schedule.Reset(Environment.TickCount64, intervalMs);
                 if (!automatic) CancelActivity();
+                SaveSettings();
             }
-            ImGui.EndDisabled();
             ImGui.SetNextItemWidth(250);
             if (ImGui.SliderInt("延迟", ref intervalMs, 1000, 10000, "%d 毫秒"))
             {
                 intervalMs = Math.Clamp(intervalMs, 1000, 10000);
                 schedule.Reset(Environment.TickCount64, intervalMs);
+                saveSettingsAt = Environment.TickCount64 + 500;
             }
             ImGui.TextDisabled($"每次随机：{Math.Max(1000, (int)Math.Ceiling(intervalMs * .8))}～{(int)Math.Floor(intervalMs * 1.2)} 毫秒（±20%，最低 1 秒）");
-            ImGui.TextDisabled(automatic ? "自动已开启；无法输入时暂停。关闭窗口停止。" : "自动默认关闭，勾选后按间隔提交。");
-            if (ImGui.Checkbox("防闲置（仅自动模式、游戏前台）", ref antiIdleEnabled) && !antiIdleEnabled)
-                CancelActivity();
+            ImGui.TextWrapped(automatic ? "自动设置已开启；副本外或关闭窗口时暂停，进本打开后恢复。" : "自动设置已关闭；开关和间隔会自动保存。");
+            if (ImGui.Checkbox("防闲置（仅自动模式、游戏前台）", ref antiIdleEnabled))
+            {
+                if (!antiIdleEnabled) CancelActivity();
+                SaveSettings();
+            }
             if (antiIdleEnabled)
             {
-                if (ImGui.Combo("防闲置方式", ref antiIdleMode, ["错误输入 1 + Enter", "功能键与方向键"], 2)) CancelActivity();
+                if (ImGui.Combo("防闲置方式", ref antiIdleMode, ["错误输入 1 + Enter", "功能键与方向键"], 2))
+                {
+                    CancelActivity();
+                    SaveSettings();
+                }
                 ImGui.TextWrapped(antiIdleMode == 0
                     ? "约每 20 秒输入 1 并回车；与所有提交共用至少 1 秒冷却，可能影响正确率。"
                     : "约每 20 秒发送功能键和左右方向键；不额外提交词条。");
-                ImGui.TextDisabled(automatic ? (antiIdleMode == 0 ? antiIdleSubmit.Status : antiIdle.Status) : "等待开启自动模式");
-                if (automatic && activityInputStatus != "输入框已就绪") ImGui.TextWrapped(activityInputStatus);
+                ImGui.TextDisabled(!window.InDuty ? "副本外暂停防闲置" : automatic ? (antiIdleMode == 0 ? antiIdleSubmit.Status : antiIdle.Status) : "等待开启自动模式");
+                if (window.InDuty && automatic && activityInputStatus != "输入框已就绪") ImGui.TextWrapped(activityInputStatus);
             }
             ImGui.Separator();
             ImGui.TextWrapped(lastResult);
@@ -343,13 +373,31 @@ public sealed unsafe class Plugin : IDalamudPlugin
         }
         ImGui.End();
         open = visible;
-        if (!open) StopAutomatic();
+        if (!open) PauseExecution();
     }
 
-    private void StopAutomatic()
+    private void SaveSettings()
+    {
+        configuration.Automatic = automatic;
+        configuration.IntervalMs = intervalMs;
+        configuration.AntiIdleEnabled = antiIdleEnabled;
+        configuration.AntiIdleMode = antiIdleMode;
+        configuration.Normalize();
+        try
+        {
+            Pi.SavePluginConfig(configuration);
+            saveSettingsAt = 0;
+        }
+        catch (Exception ex)
+        {
+            saveSettingsAt = Environment.TickCount64 + 5000;
+            Log.Warning(ex, "Could not save KeyboundClick settings; retry scheduled");
+        }
+    }
+
+    private void PauseExecution()
     {
         gate.Cancel();
-        automatic = false;
         CancelActivity();
     }
 
@@ -362,7 +410,8 @@ public sealed unsafe class Plugin : IDalamudPlugin
     public void Dispose()
     {
         disposed = true;
-        StopAutomatic();
+        SaveSettings();
+        PauseExecution();
         if (antiIdle.IsBusy || antiIdleSubmit.IsBusy)
         {
             CancelActivity();

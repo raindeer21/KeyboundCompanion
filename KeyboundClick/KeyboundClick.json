@@ -2,13 +2,13 @@
   "Author": "raindeer21",
   "Name": "键影随行",
   "InternalName": "KeyboundClick",
-  "AssemblyVersion": "0.1.5.0",
-  "Description": "魔光键影词条助手：首领优先，其余随机。支持手动单次与自动间隔提交，延迟 ±20% 随机，共用至少 1 秒冷却。支持前台防闲置；进本自动显示、出本自动隐藏，启动不弹窗。使用 /ktgclick 在副本内打开窗口。",
+  "AssemblyVersion": "0.1.6.0",
+  "Description": "魔光键影词条助手：首领优先，其余随机。支持手动与自动提交、可调随机间隔、共用至少 1 秒冷却及两种前台防闲置方式。自动开关和间隔会保存。进本显示、出本隐藏、启动不弹窗；任何地点均可用 /ktgclick 打开设置。",
   "Punchline": "一键随行，键影从容。",
   "RepoUrl": "https://github.com/raindeer21/KeyboundCompanion",
-  "DownloadLinkInstall": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.5/KeyboundClick.zip",
-  "DownloadLinkUpdate": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.5/KeyboundClick.zip",
-  "DownloadLinkTesting": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.5/KeyboundClick.zip",
+  "DownloadLinkInstall": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.6/KeyboundClick.zip",
+  "DownloadLinkUpdate": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.6/KeyboundClick.zip",
+  "DownloadLinkTesting": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.6/KeyboundClick.zip",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
   "LoadRequiredState": 0,
@@ -17,5 +17,5 @@
     "魔光键影",
     "KeyboundBrawler"
   ],
-  "Changelog": "修复敌人及波次间隙反复重置防闲置计时的问题。保留错误输入 1 + Enter、功能键与方向键两种方式，以及进出本自动显示窗口。"
+  "Changelog": "自动开关、间隔和防闲置选项自动保存。副本外可手动打开设置，不能攻击时也能调整。关闭窗口或出本只暂停执行，不清除设置。修复鼠标点击误触发防闲置暂停及提示残留。"
 }

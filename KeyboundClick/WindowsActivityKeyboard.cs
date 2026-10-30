@@ -17,7 +17,9 @@ internal sealed class WindowsActivityKeyboard : IActivityKeyboard
 
     public bool HasUserInput(ushort ownedKey)
     {
-        for (ushort key = 1; key < 255; key++)
+        // VK 0x01..0x06 are mouse buttons (and VK_CANCEL). Ordinary mouse
+        // clicks must not cancel an in-flight typing sequence.
+        for (ushort key = 0x08; key < 255; key++)
         {
             if (key == ownedKey) continue;
             // Windows also exposes left/right modifiers through the generic key.
