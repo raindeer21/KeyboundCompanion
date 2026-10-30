@@ -4,10 +4,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.Command;
+using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.System.String;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -39,7 +41,10 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private string status = "等待进入魔光键影";
     private string lastResult = "尚未提交";
     private string? initializationError;
-    private bool open = true;
+    private readonly DutyWindowState window = new();
+    private bool open { get => window.IsOpen; set => window.SetOpen(value); }
+    private bool antiIdleEnabled = true;
+    private readonly AntiIdlePulse antiIdle = new(new WindowsActivityKeyboard());
     private bool disposed;
     private uint requestedTerritory;
     private long requestedAt;
@@ -73,18 +78,40 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private void Open() => open = true;
 
+    private static bool IsInDuty()
+    {
+        var main = GameMain.Instance();
+        return Client.IsLoggedIn && main != null && main->CurrentContentFinderConditionId == 1095;
+    }
+
     private void Update(IFramework _)
     {
         if (disposed) return;
         var now = Environment.TickCount64;
-        var clicked = gate.Consume(); // Consume before doing anything: failed submissions are never retried.
-        var timed = automatic && schedule.IsDue(now);
-        if (timed) schedule.Reset(now, intervalMs); // Never catch up with a burst after a stalled frame.
-        if (!clicked && !timed && (!open || now - refreshedAt < 150)) return;
         try
         {
-            Refresh();
-            refreshedAt = Environment.TickCount64;
+            // Observe duty transitions even while the window is hidden.
+            window.Observe(IsInDuty());
+            if (!open)
+            {
+                automatic = false;
+                ready = false;
+                gate.Cancel();
+                antiIdle.Cancel(now);
+                return;
+            }
+            var clicked = gate.Consume(); // Consume once; a failed request is never queued.
+            var timed = automatic && schedule.IsDue(now);
+            if (timed) schedule.Reset(now, intervalMs); // No catch-up bursts after a stalled frame.
+            if (clicked || timed || now - refreshedAt >= 150)
+            {
+                Refresh();
+                refreshedAt = now;
+            }
+            var wasPulsing = antiIdle.IsBusy;
+            if (clicked) antiIdle.Cancel(now); // Manual submissions take priority over activity keys.
+            else antiIdle.Update(now, antiIdleEnabled && automatic && ready && CanSendActivityKeys());
+            if (antiIdle.IsBusy || (!clicked && wasPulsing)) return;
             if (!clicked && !timed) return;
             if (!open || (clicked && (Client.TerritoryType != requestedTerritory || now - requestedAt > 1500)))
             {
@@ -129,10 +156,50 @@ public sealed unsafe class Plugin : IDalamudPlugin
         {
             ready = false;
             automatic = false;
+            antiIdle.Cancel(now);
             status = "读取失败，提交已暂停";
             lastResult = "本次操作已结束";
             Log.Error(ex, "KeyboundClick read/submit failed; no retry scheduled");
         }
+    }
+
+    private static readonly string[] BlockingAddons =
+    [
+        "SelectYesno", "SelectString", "SelectIconString", "SelectOk", "ContextMenu",
+        "ContentsFinderConfirm", "ContentsFinder", "KTGResult", "KTGGameOver", "_KTGGameover"
+    ];
+
+    private bool CanSendActivityKeys()
+    {
+        foreach (var name in BlockingAddons)
+        {
+            var dialog = Gui.GetAddonByName<AtkUnitBase>(name);
+            if (dialog != null && dialog->IsVisible) return false;
+        }
+        var agents = AgentModule.Instance();
+        if (agents == null) return false;
+        var hud = (KtgHud*)agents->GetAgentByInternalId((AgentId)397);
+        var inputAgent = (KtgInput*)agents->GetAgentByInternalId((AgentId)398);
+        if (hud == null || hud->IsShown == 0 || hud->HasDirector == 0 || inputAgent == null || inputAgent->Hud != hud) return false;
+        var player = Objects.LocalPlayer;
+        if (player == null || player.IsDead || player.StatusList.Any(effect => effect.StatusId == 5347)) return false;
+        var addon = Gui.GetAddonByName<AtkUnitBase>("KTGInput");
+        if (addon == null || !addon->IsVisible) return false;
+        var node = addon->GetComponentNodeById(7);
+        if (node == null || node->Component == null || node->Component->GetComponentType() != ComponentType.TextInput) return false;
+        var input = (AtkComponentTextInput*)node->Component;
+        if (!input->Enabled || input->OwnerAddon != addon || HasVisibleText(input->RawString) || HasVisibleText(input->EvaluatedString)) return false;
+        var ui = RaptureAtkModule.Instance();
+        if (ui == null) return false;
+        var target = ui->AtkModule.TextInput.TargetTextInputEventInterface;
+        return target == null || target == &input->AtkTextInputEventInterface;
+    }
+
+    private static bool HasVisibleText(Utf8String text)
+    {
+        if (text.BufUsed <= 1) return false;
+        if (text.StringPtr.Value == null || text.BufUsed > 4096) return true;
+        return SeString.Parse(new ReadOnlySpan<byte>(text.StringPtr, (int)text.BufUsed - 1)).TextValue.Length != 0;
     }
 
     private void Refresh()
@@ -189,9 +256,10 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private void Draw()
     {
-        if (!open) { gate.Cancel(); automatic = false; return; }
-        ImGui.SetNextWindowSize(new Vector2(440, 340), ImGuiCond.FirstUseEver);
-        if (ImGui.Begin("键影随行###KeyboundClick", ref open))
+        if (!open || !window.InDuty) { StopAutomatic(); return; }
+        ImGui.SetNextWindowSize(new Vector2(460, 410), ImGuiCond.FirstUseEver);
+        var visible = open;
+        if (ImGui.Begin("键影随行###KeyboundClick", ref visible))
         {
             ImGui.TextUnformatted("优先首领；没有首领时随机选择敌人。");
             ImGui.TextWrapped(status);
@@ -209,7 +277,10 @@ public sealed unsafe class Plugin : IDalamudPlugin
             ImGui.Spacing();
             ImGui.BeginDisabled(!ready && !automatic);
             if (ImGui.Checkbox("自动间隔提交", ref automatic))
+            {
                 schedule.Reset(Environment.TickCount64, intervalMs);
+                if (!automatic) antiIdle.Cancel(Environment.TickCount64);
+            }
             ImGui.EndDisabled();
             ImGui.SetNextItemWidth(250);
             if (ImGui.SliderInt("延迟", ref intervalMs, 1000, 10000, "%d 毫秒"))
@@ -219,6 +290,13 @@ public sealed unsafe class Plugin : IDalamudPlugin
             }
             ImGui.TextDisabled($"每次随机：{Math.Max(1000, (int)Math.Ceiling(intervalMs * .8))}～{(int)Math.Floor(intervalMs * 1.2)} 毫秒（±20%，最低 1 秒）");
             ImGui.TextDisabled(automatic ? "自动已开启；无法输入时暂停。关闭窗口停止。" : "自动默认关闭，勾选后按间隔提交。");
+            if (ImGui.Checkbox("防闲置（仅自动模式、游戏前台）", ref antiIdleEnabled) && !antiIdleEnabled)
+                antiIdle.Cancel(Environment.TickCount64);
+            if (antiIdleEnabled)
+            {
+                ImGui.TextWrapped("约每 20 秒发送功能键和左右方向键；正在输入或出现确认框时暂停。");
+                ImGui.TextDisabled(automatic ? antiIdle.Status : "等待开启自动模式");
+            }
             ImGui.Separator();
             ImGui.TextWrapped(lastResult);
             if (ImGui.CollapsingHeader("当前候选目标"))
@@ -226,14 +304,26 @@ public sealed unsafe class Plugin : IDalamudPlugin
                     ImGui.BulletText($"{(c.IsBoss ? "首领" : "普通")} · {c.Label} → {c.Word}");
         }
         ImGui.End();
-        if (!open) { gate.Cancel(); automatic = false; }
+        open = visible;
+        if (!open) StopAutomatic();
+    }
+
+    private void StopAutomatic()
+    {
+        gate.Cancel();
+        automatic = false;
+        antiIdle.Cancel(Environment.TickCount64);
     }
 
     public void Dispose()
     {
         disposed = true;
-        automatic = false;
-        gate.Cancel();
+        StopAutomatic();
+        if (antiIdle.IsBusy)
+        {
+            antiIdle.Cancel(Environment.TickCount64);
+            if (antiIdle.IsBusy) Log.Error("Unable to release an activity key during unload");
+        }
         Framework.Update -= Update;
         Pi.UiBuilder.Draw -= Draw;
         Pi.UiBuilder.OpenMainUi -= Open;

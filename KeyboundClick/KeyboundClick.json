@@ -1,17 +1,21 @@
 {
-  "Author": "Aaron Du",
+  "Author": "raindeer21",
   "Name": "键影随行",
   "InternalName": "KeyboundClick",
-  "AssemblyVersion": "0.1.2.0",
-  "Description": "魔光键影词条助手：首领优先，其余随机。支持手动单次提交和自动间隔提交，延迟可调并在 ±20% 范围内随机；所有提交共用至少 1 秒的硬性冷却。使用 /ktgclick 打开窗口。",
+  "AssemblyVersion": "0.1.3.0",
+  "Description": "魔光键影词条助手：首领优先，其余随机。支持手动单次与自动间隔提交，延迟 ±20% 随机，共用至少 1 秒冷却。支持前台防闲置；进本自动显示、出本自动隐藏，启动不弹窗。使用 /ktgclick 在副本内打开窗口。",
   "Punchline": "一键随行，键影从容。",
   "RepoUrl": "https://github.com/raindeer21/KeyboundCompanion",
-  "DownloadLinkInstall": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.2/KeyboundClick.zip",
-  "DownloadLinkUpdate": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.2/KeyboundClick.zip",
-  "DownloadLinkTesting": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.2/KeyboundClick.zip",
+  "DownloadLinkInstall": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.3/KeyboundClick.zip",
+  "DownloadLinkUpdate": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.3/KeyboundClick.zip",
+  "DownloadLinkTesting": "https://github.com/raindeer21/KeyboundCompanion/releases/download/v0.1.3/KeyboundClick.zip",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
   "LoadRequiredState": 0,
   "CanUnloadAsync": false,
-  "Tags": ["魔光键影", "KeyboundBrawler"]
+  "Tags": [
+    "魔光键影",
+    "KeyboundBrawler"
+  ],
+  "Changelog": "新增前台防闲置按键；进魔光键影自动显示窗口，离开自动隐藏，启动不弹窗。自动提交默认关闭。"
 }

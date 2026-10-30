@@ -11,7 +11,12 @@
 - **自动间隔提交**：默认关闭，手动勾选后开启。
 - **延迟滑块**：1000～10000 毫秒，每轮在设定值的 ±20% 范围内重新随机，最低不低于 1000 毫秒。
 - **共用硬性冷却**：手动和自动的两次实际提交至少相隔 1 秒；词条未匹配也计算冷却。
+- **窗口随副本显示**：插件启动或重载时不弹窗；之后进入魔光键影自动显示，离开自动隐藏。本局手动关闭后不会反复弹出，副本外保持隐藏。
+- **前台防闲置**：开关默认开启，仅自动提交运行且游戏位于前台时生效。约每 20 秒依次短按 F13、F14、左右 Shift、左右方向键；按键跨帧释放，不阻塞游戏线程，不额外提交词条。
+- 防闲置在禁止输入、输入框有文字、聊天框取得输入焦点、出现确认框或用户正在按键时暂停。关闭窗口、停止自动、切到后台、离开或卸载时释放插件持有的按键。
 - 禁止打字、没有有效敌人或输入界面不可用时暂停提交；关闭窗口、离开副本或卸载插件会停止自动模式。
+
+前台防闲置参考国服项目的按键方案，当前版本未完成整局实机防踢验证，不保证后台或所有客户端条件下有效。
 
 例如，延迟设为 1000 毫秒时实际范围为 1000～1200 毫秒，设为 2000 毫秒时为 1600～2400 毫秒。
 
@@ -23,7 +28,7 @@
 https://raw.githubusercontent.com/raindeer21/MyDalamudPlugins/master/pluginmaster.json
 ```
 
-在插件安装器中搜索 **键影随行**。进入魔光键影后，输入 `/ktgclick` 打开窗口，再点击「提交一次」或勾选「自动间隔提交」。
+在插件安装器中搜索 **键影随行**。进入魔光键影后窗口自动显示，再点击「提交一次」或勾选「自动间隔提交」。本局手动关闭后，可用 `/ktgclick` 重新打开。插件在副本内加载或重载时也不会主动弹窗，可用该命令打开。
 
 发布包也可以在 [Releases](https://github.com/raindeer21/KeyboundCompanion/releases) 下载。开发模式使用解压后的 `KeyboundClick.dll`；如已加载开发版，请先停用开发版再安装插件库版本，避免重复加载。
 
@@ -47,3 +52,5 @@ dotnet run --project KeyboundClick.Tests/KeyboundClick.Tests.csproj -c Release
 通过客户端 HUD 读取当前词条，调用游戏的词条提交入口。模块内部标识仍为 `KeyboundClick`，命令为 `/ktgclick`。
 
 原生结构参考 [FFXIVClientStructs.Expansion](https://github.com/AtmoOmen/FFXIVClientStructs.Expansion/tree/22b9e96bca56aab9d18a60956dfb71c14d3c50c2)，相关 MIT 许可保留在 [第三方许可说明](KeyboundClick/THIRD-PARTY-NOTICES.txt)。
+
+前台防闲置按键方案参考 [SiGeoMa/ff14-keybound-brawler](https://github.com/SiGeoMa/ff14-keybound-brawler/blob/a20c4687f029049c9bd4bf90120c8a5fa66a2324/dalamud-plugin/KeyboundBrawler/Core/AutoTyper.cs)。本项目独立实现了按键调度、前台检查与释放处理，没有复制该项目源代码。

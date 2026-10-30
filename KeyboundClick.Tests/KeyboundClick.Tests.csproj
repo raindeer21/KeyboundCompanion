@@ -6,5 +6,7 @@
     <Compile Include="../KeyboundClick/IntervalSchedule.cs" Link="IntervalSchedule.cs" />
     <Compile Include="../KeyboundClick/EnemyKinds.cs" Link="EnemyKinds.cs" />
     <Compile Include="../KeyboundClick/SubmissionCooldown.cs" Link="SubmissionCooldown.cs" />
+    <Compile Include="../KeyboundClick/DutyWindowState.cs" Link="DutyWindowState.cs" />
+    <Compile Include="../KeyboundClick/AntiIdlePulse.cs" Link="AntiIdlePulse.cs" />
   </ItemGroup>
 </Project>
